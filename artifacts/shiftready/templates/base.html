@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3ee">
+  <title>{% if page == "report" %}Candidate report · {% elif page == "candidate" %}Interview · {% endif %}ShiftReady</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="page-{{ page }}">
+{% if page == "dashboard" %}
+<header class="topbar"><a class="brand" href="/"><span class="brand-symbol">S</span> ShiftReady</a><div class="topbar-right"><span class="demo-pill"><i></i> DEMO WORKSPACE</span><span class="owner-avatar">O</span><span class="owner-label">Owner</span></div></header>
+{% endif %}
+{% block content %}{% endblock %}
+</body>
+</html>

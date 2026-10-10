@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="candidate-shell" data-token="{{ token }}">
+  <nav class="candidate-nav"><a class="brand" href="/"><span class="brand-symbol">S</span> ShiftReady</a><span class="privacy-chip">PRIVATE INTERVIEW LINK</span></nav>
+  <section class="candidate-intro" id="candidateIntro">
+    <p class="eyebrow">VOICE SIMULATION · ROUND {{ candidate.round }}</p>
+    <h1>Hi {{ candidate.name.split(' ')[0] }},<br><span>let’s get started.</span></h1>
+    <p class="lede">You’ll handle three short customer phone calls for a <strong>{{ candidate.role_name }}</strong> role. Speak naturally, as if you were helping a customer in a real store. Each call has a four-minute limit.</p>
+    <div class="candidate-brief">
+      <div class="brief-icon">01</div><div><strong>Check your microphone</strong><p>Allow microphone access and use headphones if available. You can type instead if speech recognition is not supported.</p></div>
+    </div>
+    <div class="candidate-brief">
+      <div class="brief-icon">02</div><div><strong>Talk it through</strong><p>There are no trick questions. Listen to the customer, ask what you need to know, and explain what you can do.</p></div>
+    </div>
+    <div class="candidate-brief">
+      <div class="brief-icon">03</div><div><strong>Your voice is recorded</strong><p>The recording helps create a timestamped transcript and review speaking pace, pauses, and relative volume. It is used for this interview report.</p></div>
+    </div>
+    <button class="button button-accent button-large" id="beginInterview">Check mic &amp; continue <span>→</span></button>
+    <p class="candidate-error" id="introError" role="alert"></p>
+  </section>
+
+  <section class="interview hidden" id="interview" data-round="{{ candidate.round }}">
+    <aside class="interview-rail">
+      <a class="brand" href="/"><span class="brand-symbol">S</span> ShiftReady</a>
+      <p class="eyebrow">INTERVIEW ROUND {{ candidate.round }}</p>
+      <div id="scenarioSteps" class="scenario-steps"></div>
+      <div class="record-indicator"><span class="pulse"></span><span id="recordState">Recording ready</span></div>
+      <div class="privacy-small">Your microphone recording is used to create this interview report.</div>
+    </aside>
+    <section class="interview-workspace">
+      <header class="call-header"><div><p class="eyebrow" id="scenarioLabel">CALL 1 OF 3</p><h2 id="scenarioTitle">Starting your call…</h2></div><div class="timer" id="timer">04:00</div></header>
+      <div class="call-brief"><span class="brief-kicker">YOUR BRIEF</span><p id="scenarioBrief"></p></div>
+      <div class="conversation" id="conversation" aria-live="polite"></div>
+      <div class="customer-state" id="customerState"><span class="sound-wave"><i></i><i></i><i></i><i></i><i></i></span><span id="customerStateText">Your customer is ready</span></div>
+      <form class="reply-form" id="replyForm">
+        <textarea id="replyText" rows="2" maxlength="1600" placeholder="Type what you would say, or use the microphone button…" required></textarea>
+        <div class="reply-actions"><button class="button button-outline" type="button" id="micButton"><span>●</span> Speak</button><span class="speech-support" id="speechSupport"></span><button class="button button-dark" type="submit" id="sendReply">Send reply <span>↑</span></button></div>
+      </form>
+      <footer class="call-footer"><span>Keep your answer natural and focused on the customer.</span><button class="text-link hidden" id="nextCall">Finish this call →</button><button class="text-link hidden" id="finishInterview">Finish interview →</button></footer>
+      <p class="candidate-error" id="callError" role="alert"></p>
+    </section>
+  </section>
+  <section class="complete-screen hidden" id="completeScreen"><div class="complete-check">✓</div><p class="eyebrow">INTERVIEW COMPLETE</p><h1>Thank you, {{ candidate.name.split(' ')[0] }}.</h1><p>Your conversations have been saved. The hiring team will review your report and follow up with you.</p><a href="/" class="text-link">Return to ShiftReady</a></section>
+</main>
+<script src="/static/interview.js" defer></script>
+{% endblock %}

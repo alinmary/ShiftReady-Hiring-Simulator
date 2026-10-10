@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="shell report-shell">
+  <nav class="breadcrumbs"><a href="/">Hiring pipeline</a><span>/</span><span>{{ report.candidate_name }}</span></nav>
+  <section class="report-heading">
+    <div><p class="eyebrow">CANDIDATE REPORT · ROUND {{ report.round }}</p><h1>{{ report.candidate_name }}</h1><p class="lede">{{ report.role_name }}{% if report.email %} · {{ report.email }}{% endif %}</p></div>
+    <div class="verdict-block"><span class="verdict-tag verdict-{{ report.data.verdict|lower|replace(' ', '-') }}">{{ report.data.verdict }}</span><div class="big-score">{{ "%.1f"|format(report.data.weighted_average) }} <small>/ 10</small></div><span class="muted">AI recommendation</span></div>
+  </section>
+
+  <div class="advisory"><strong>Advisory only.</strong> This report supports a human-led review. The owner makes the final hiring decision.</div>
+
+  {% if report.data.summary %}<section class="report-summary"><p class="eyebrow">AT A GLANCE</p><p>{{ report.data.summary }}</p><span class="confidence-chip">Confidence: {{ report.data.confidence }}</span></section>{% endif %}
+
+  <section class="report-grid">
+    <div class="panel score-panel"><div class="panel-heading"><div><p class="eyebrow">SEVEN CRITERIA</p><h2>Interview scores</h2></div><span class="weighted-label">Empathy + composure weighted 1.5×</span></div>
+      {% for criterion, score in report.data.scores.items() %}
+      <div class="score-row"><div class="score-label"><span>{{ criterion }}</span><strong>{{ score }}<small>/10</small></strong></div><div class="score-track"><i style="width:{{ score * 10 }}%" class="{% if score < 6 %}score-low{% elif score >= 8 %}score-high{% endif %}"></i></div></div>
+      {% endfor %}
+      {% if report.data.red_flags %}<div class="red-flag"><strong>Review flagged evidence</strong>{% for flag in report.data.red_flags %}<p>{{ flag }}</p>{% endfor %}</div>{% endif %}
+    </div>
+    <div class="panel decision-panel"><p class="eyebrow">OWNER REVIEW</p><h2>Your decision</h2><p>The recommendation is not an automatic hiring decision. Record your own outcome after reviewing the evidence.</p>
+      <label class="decision-label">Final decision<select id="ownerDecision" data-candidate-id="{{ report.candidate_id }}"><option {% if report.owner_decision == 'Pending' %}selected{% endif %}>Pending</option><option {% if report.owner_decision == 'Strong Hire' %}selected{% endif %}>Strong Hire</option><option {% if report.owner_decision == 'Decent Hire' %}selected{% endif %}>Decent Hire</option><option {% if report.owner_decision == 'Do Not Hire' %}selected{% endif %}>Do Not Hire</option></select></label>
+      <p class="decision-save" id="decisionSave" role="status"></p>
+      <div class="voice-signals"><strong>Voice evidence</strong><p>{{ report.data.signals.label or report.signals.label or "Voice evidence available in recorded audio and transcript." }}</p>{% if report.audio_path %}<audio id="reportAudio" controls preload="metadata" src="{{ report.audio_path }}"></audio><small>Click a highlight timestamp to play from that moment.</small>{% else %}<p class="muted">No candidate recording is attached to this report.</p>{% endif %}</div>
+    </div>
+  </section>
+
+  <section class="panel highlights-panel"><div class="panel-heading"><div><p class="eyebrow">MOMENTS TO REVIEW</p><h2>Highlights</h2></div></div>
+    {% if report.data.highlights %}
+    <div class="highlight-list">{% for highlight in report.data.highlights %}
+      <article class="highlight-item"><button class="timestamp" data-play-at="{{ highlight.timestamp_seconds or highlight.timestamp or 0 }}" {% if not report.audio_path %}disabled{% endif %}>{{ "%02d"|format(((highlight.timestamp_seconds or highlight.timestamp or 0)|int // 60)) }}:{{ "%02d"|format(((highlight.timestamp_seconds or highlight.timestamp or 0)|int % 60)) }}</button><div><span class="highlight-kind kind-{{ highlight.kind|default('coaching') }}">{{ highlight.kind|default('coaching')|title }}</span><strong>{{ highlight.criterion }}</strong><blockquote>“{{ highlight.quote }}”</blockquote><p>{{ highlight.note }}</p></div></article>
+    {% endfor %}</div>
+    {% else %}<p class="muted">No timestamped moments were generated for this interview.</p>{% endif %}
+  </section>
+
+  <section class="report-grid lower-grid">
+    <section class="panel transcript-panel"><div class="panel-heading"><div><p class="eyebrow">FULL INTERVIEW</p><h2>Transcript</h2></div></div>
+      {% for item in report.data.transcript %}
+      <div class="transcript-line"><span class="speaker {{ item.speaker }}">{{ item.speaker|title }}</span><div><small>{{ item.scenario }}{% if item.timestamp_seconds is defined %} · {{ "%02d"|format(item.timestamp_seconds|int // 60) }}:{{ "%02d"|format(item.timestamp_seconds|int % 60) }}{% endif %}</small><p>{{ item.text }}</p></div></div>
+      {% endfor %}
+    </section>
+    <section class="panel followup-panel"><p class="eyebrow">HUMAN INTERVIEW</p><h2>Suggested follow-up</h2><ol>{% for question in report.data.follow_up_questions %}<li>{{ question }}</li>{% endfor %}</ol>
+      {% if report.round < 2 %}<hr><p class="eyebrow">NEXT ROUND</p><h3>Stress-test a skill</h3><p>Create three harder customer calls based on your focus areas.</p><form action="/rounds/{{ report.candidate_id }}" method="post"><label>Focus area<textarea name="focus" rows="3" placeholder="e.g. escalation judgment and staying composed under pressure"></textarea></label><button class="button button-accent" type="submit">Generate round 2 invite →</button></form>{% endif %}
+    </section>
+  </section>
+
+  {% if report.rounds|length > 1 %}
+  <section class="panel rounds-panel"><p class="eyebrow">PROGRESSION</p><h2>Round comparison</h2><div class="round-comparison">{% for item in report.rounds %}<div><span>ROUND {{ item.round }}</span><strong>{{ "%.1f"|format(item.data.weighted_average) }}</strong><small>{{ item.data.verdict }} recommendation</small></div>{% endfor %}</div></section>
+  {% endif %}
+  <p class="page-footnote">ShiftReady provides structured interview support. Do not use this report as the sole basis for an employment decision.</p>
+</main>
+<script src="/static/report.js" defer></script>
+{% endblock %}
