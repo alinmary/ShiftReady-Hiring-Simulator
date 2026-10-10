@@ -10,19 +10,12 @@
     <div class="hero-mark" aria-hidden="true"><span>SR</span><small>SHIFT<br>READY</small></div>
   </section>
 
-  {% if request.query_params.get("invite") %}
-  <section class="notice invite-notice">
-    <div><strong>Invite created</strong><p>Copy this private link and send it to the candidate.</p></div>
-    <div class="copy-row"><input id="inviteUrl" readonly value="{{ request.base_url }}invite/{{ request.query_params.get('invite') }}"><button class="button button-dark" data-copy="#inviteUrl">Copy link</button></div>
-  </section>
-  {% endif %}
-
   <section class="top-controls">
     <div class="section-heading">
       <div><p class="eyebrow">YOUR CANDIDATES</p><h2>Hiring pipeline</h2></div>
       <span class="subtle">{{ candidates|length }} candidates</span>
     </div>
-    <details class="invite-form" {% if request.query_params.get("invite") %}open{% endif %}>
+    <details class="invite-form">
       <summary class="button button-accent"><span aria-hidden="true">＋</span> Invite candidate</summary>
       <form action="/invites/create" method="post" class="form-grid">
         <label>Candidate name<input name="name" required placeholder="e.g. Jordan Lee"></label>
@@ -71,12 +64,4 @@
 
   <section class="demo-note"><span class="note-icon">i</span><p><strong>Demo workspace</strong> · Sample candidate reports are clearly marked. AI recommendations support—not replace—the owner’s hiring decision.</p></section>
 </main>
-<script>
-document.querySelectorAll("[data-copy]").forEach(button => button.addEventListener("click", async () => {
-  const input = document.querySelector(button.dataset.copy);
-  input.select();
-  try { await navigator.clipboard.writeText(input.value); button.textContent = "Copied"; }
-  catch (_) { document.execCommand("copy"); button.textContent = "Copied"; }
-}));
-</script>
 {% endblock %}
