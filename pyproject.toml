@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
+name = "shiftready"
 version = "0.1.0"
-description = "Add your description here"
+description = "Voice-simulation hiring for retail roles, scored with Claude."
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=1.13.0",
@@ -10,4 +10,9 @@ dependencies = [
     "jinja2>=3.1.6",
     "python-multipart>=0.0.32",
     "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]
