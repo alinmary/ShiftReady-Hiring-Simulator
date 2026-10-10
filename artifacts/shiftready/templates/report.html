@@ -28,7 +28,7 @@
   <section class="panel highlights-panel"><div class="panel-heading"><div><p class="eyebrow">MOMENTS TO REVIEW</p><h2>Highlights</h2></div></div>
     {% if report.data.highlights %}
     <div class="highlight-list">{% for highlight in report.data.highlights %}
-      <article class="highlight-item"><button class="timestamp" data-play-at="{{ highlight.timestamp_seconds or highlight.timestamp or 0 }}" {% if not report.audio_path %}disabled{% endif %}>{{ "%02d"|format(((highlight.timestamp_seconds or highlight.timestamp or 0)|int // 60)) }}:{{ "%02d"|format(((highlight.timestamp_seconds or highlight.timestamp or 0)|int % 60)) }}</button><div><span class="highlight-kind kind-{{ highlight.kind|default('coaching') }}">{{ highlight.kind|default('coaching')|title }}</span><strong>{{ highlight.criterion }}</strong><blockquote>“{{ highlight.quote }}”</blockquote><p>{{ highlight.note }}</p></div></article>
+      <article class="highlight-item"><button class="timestamp" data-play-at="{{ highlight.timestamp_seconds or 0 }}" {% if not report.audio_path %}disabled{% endif %}>{{ "%02d"|format(((highlight.timestamp_seconds or 0)|int // 60)) }}:{{ "%02d"|format(((highlight.timestamp_seconds or 0)|int % 60)) }}</button><div><span class="highlight-kind kind-{{ highlight.kind|default('coaching') }}">{{ highlight.kind|default('coaching')|title }}</span><strong>{{ highlight.criterion }}</strong><blockquote>“{{ highlight.quote }}”</blockquote><p>{{ highlight.note }}</p></div></article>
     {% endfor %}</div>
     {% else %}<p class="muted">No timestamped moments were generated for this interview.</p>{% endif %}
   </section>

@@ -1,29 +1,19 @@
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Iterator
 
+from config import ROOT, settings
+from domain.enums import CandidateStatus
+from domain.scoring import CRITERIA, EMPATHY, ESCALATION, scoring_policy
 
-ROOT = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("SHIFTREADY_DATA_DIR", ROOT / "data"))
-MEDIA_DIR = DATA_DIR / "media"
-DB_PATH = DATA_DIR / "shiftready.sqlite3"
-
-CRITERIA = [
-    "Empathy & active listening",
-    "Problem resolution",
-    "Escalation judgment",
-    "Policy & integrity",
-    "Communication clarity",
-    "Vocal tone & warmth",
-    "Composure under pressure",
-]
+DATA_DIR = settings.data_dir
+MEDIA_DIR = settings.media_dir
+DB_PATH = settings.db_path
 
 SCENARIOS = [
     {
@@ -130,6 +120,28 @@ def initialize() -> None:
             )
         if con.execute("SELECT COUNT(*) FROM candidates").fetchone()[0] == 0:
             seed_demo_data(con)
+        migrate_highlight_timestamps(con)
+
+
+def migrate_highlight_timestamps(con: sqlite3.Connection) -> int:
+    """Rename the legacy highlight key "timestamp" to "timestamp_seconds".
+
+    Older seeded demo reports used "timestamp". Safe to run on every start.
+    Returns the number of reports changed.
+    """
+    changed = 0
+    for row in con.execute("SELECT id, data_json FROM reports").fetchall():
+        data = json.loads(row["data_json"])
+        updated = False
+        for highlight in data.get("highlights", []):
+            if isinstance(highlight, dict) and "timestamp" in highlight:
+                legacy = highlight.pop("timestamp")
+                highlight.setdefault("timestamp_seconds", legacy)
+                updated = True
+        if updated:
+            con.execute("UPDATE reports SET data_json=? WHERE id=?", (json.dumps(data), row["id"]))
+            changed += 1
+    return changed
 
 
 def seed_demo_data(con: sqlite3.Connection) -> None:
@@ -149,7 +161,7 @@ def seed_demo_data(con: sqlite3.Connection) -> None:
         report_id = secrets.token_hex(12)
         con.execute(
             "INSERT INTO candidates(id,name,email,role_id,status,owner_decision,created_at) VALUES(?,?,?,?,?,?,?)",
-            (candidate_id, name, "", role_id, "Completed", "Pending", now),
+            (candidate_id, name, "", role_id, CandidateStatus.COMPLETED.value, "Pending", now),
         )
         con.execute(
             "INSERT INTO invites(id,candidate_id,token,round,scenarios_json,used_at,created_at) VALUES(?,?,?,?,?,?,?)",
@@ -160,10 +172,8 @@ def seed_demo_data(con: sqlite3.Connection) -> None:
             (session_id, candidate_id, invite_id, 1, now, now, json.dumps({"label": "Demo sample — no audio recorded"})),
         )
         score_map = dict(zip(CRITERIA, scores))
-        weighted = (
-            sum(score_map.values()) + score_map[CRITERIA[0]] * 0.5 + score_map[CRITERIA[6]] * 0.5
-        ) / 8
-        verdict = "Strong Hire" if weighted >= 8 and min(scores) >= 6 else "Decent Hire" if weighted >= 6 else "Do Not Hire"
+        weighted = scoring_policy.weighted_average(score_map)
+        verdict = scoring_policy.verdict(score_map).value
         report = {
             "scores": score_map,
             "weighted_average": round(weighted, 1),
@@ -172,8 +182,8 @@ def seed_demo_data(con: sqlite3.Connection) -> None:
             "confidence": "Demo sample",
             "summary": summary,
             "highlights": [
-                {"kind": "strength", "timestamp": 38, "criterion": CRITERIA[0], "quote": "I can see why that would be frustrating.", "note": "Acknowledged the customer's concern before moving to options."},
-                {"kind": "coaching", "timestamp": 105, "criterion": CRITERIA[2], "quote": "Let me check the receipt and bring in a manager if the charge is still unclear.", "note": "A specific next step keeps the escalation proportionate."},
+                {"kind": "strength", "timestamp_seconds": 38, "criterion": EMPATHY, "quote": "I can see why that would be frustrating.", "note": "Acknowledged the customer's concern before moving to options."},
+                {"kind": "coaching", "timestamp_seconds": 105, "criterion": ESCALATION, "quote": "Let me check the receipt and bring in a manager if the charge is still unclear.", "note": "A specific next step keeps the escalation proportionate."},
             ],
             "follow_up_questions": [
                 "How would you respond if the customer rejected both options?",
@@ -201,7 +211,7 @@ def create_candidate(name: str, email: str, role_id: str, round_number: int = 1,
             raise ValueError("Select a valid role.")
         con.execute(
             "INSERT INTO candidates(id,name,email,role_id,status,created_at) VALUES(?,?,?,?,?,?)",
-            (candidate_id, name.strip(), email.strip(), role_id, "Invited", utcnow()),
+            (candidate_id, name.strip(), email.strip(), role_id, CandidateStatus.INVITED.value, utcnow()),
         )
         con.execute(
             "INSERT INTO invites(id,candidate_id,token,round,scenarios_json,created_at) VALUES(?,?,?,?,?,?)",

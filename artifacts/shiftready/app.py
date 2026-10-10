@@ -1,29 +1,31 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import re
 import secrets
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
-import httpx
 from anthropic import AsyncAnthropic
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+
+from ai_responses import AIResponseError, parse_json, parse_json_object, response_text
+from config import settings
+from domain.enums import OWNER_DECISIONS, CandidateStatus, RoundMode, Speaker, Verdict
+from domain.scoring import clamp_scores, pressure_average, scoring_policy
 from evidence import bind_report_evidence
 from pressure import PRESSURE_CRITERIA, PRESSURE_OPTIONS, pressure_scenario, pressure_timeline
-
 from store import (
     CRITERIA,
-    DATA_DIR,
     MEDIA_DIR,
     ROOT,
-    SCENARIOS,
     candidate_by_token,
     connect,
     create_candidate,
@@ -36,15 +38,16 @@ from store import (
 )
 
 
-app = FastAPI(title="ShiftReady")
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    initialize()
+    yield
+
+
+app = FastAPI(title="ShiftReady", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR, check_dir=False), name="media")
 templates = Jinja2Templates(directory=ROOT / "templates")
-
-
-@app.on_event("startup")
-def startup() -> None:
-    initialize()
 
 
 def ai_client() -> AsyncAnthropic:
@@ -56,14 +59,10 @@ def ai_client() -> AsyncAnthropic:
 
 
 def parse_json_response(text: str) -> dict[str, Any]:
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.I)
     try:
-        result = json.loads(cleaned)
-    except json.JSONDecodeError as error:
-        raise HTTPException(502, "The AI response could not be read. Please retry.") from error
-    if not isinstance(result, dict):
-        raise HTTPException(502, "The AI returned an invalid response. Please retry.")
-    return result
+        return parse_json_object(text)
+    except AIResponseError as error:
+        raise HTTPException(502, str(error)) from error
 
 
 def update_candidate_status(candidate_id: str, status: str) -> None:
@@ -169,7 +168,7 @@ def create_invite(
 
 
 @app.get("/invite/{token}", response_class=HTMLResponse)
-def invite_page(request: Request, token: str) -> HTMLResponse:
+def invite_page(request: Request, token: str) -> Response:
     candidate = candidate_by_token(token)
     if not candidate:
         raise HTTPException(404, "This interview invitation is invalid or has expired.")
@@ -221,7 +220,7 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
     candidate = candidate_by_token(payload.token)
     if not candidate:
         raise HTTPException(404, "This interview link is not valid.")
-    if candidate["status"] == "Completed" and candidate["used_at"]:
+    if candidate["status"] == CandidateStatus.COMPLETED and candidate["used_at"]:
         raise HTTPException(409, "This invitation has already been completed.")
 
     with connect() as con:
@@ -244,7 +243,7 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
                 (session_id, candidate["id"], candidate["invite_id"], candidate["round"], utcnow()),
             )
             con.execute("UPDATE invites SET used_at=? WHERE id=?", (utcnow(), candidate["invite_id"]))
-            con.execute("UPDATE candidates SET status='In progress' WHERE id=?", (candidate["id"],))
+            con.execute("UPDATE candidates SET status=? WHERE id=?", (CandidateStatus.IN_PROGRESS.value, candidate["id"]))
 
     scenarios = json.loads(candidate["scenarios_json"])
     result = {
@@ -255,7 +254,7 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
         ],
         "round": candidate["round"],
     }
-    if scenarios[0].get("mode") == "pressure":
+    if scenarios[0].get("mode") == RoundMode.PRESSURE:
         with connect() as con:
             result["started_at"] = con.execute("SELECT started_at FROM sessions WHERE id=?", (session_id,)).fetchone()[0]
             result["pressure_events"] = [dict(row) for row in con.execute("SELECT * FROM pressure_events WHERE session_id=? ORDER BY elapsed_seconds", (session_id,))]
@@ -264,7 +263,7 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
 
 @app.post("/sr-api/session/live-turn")
 def live_turn(payload: LiveTurnRequest) -> dict[str, bool]:
-    if payload.speaker not in {"candidate", "customer"}:
+    if payload.speaker not in {Speaker.CANDIDATE, Speaker.CUSTOMER}:
         raise HTTPException(400, "Invalid conversation speaker.")
     with connect() as con:
         session = con.execute("SELECT s.id,i.scenarios_json FROM sessions s JOIN invites i ON i.id=s.invite_id WHERE s.id=? AND s.completed_at IS NULL", (payload.session_id,)).fetchone()
@@ -273,16 +272,18 @@ def live_turn(payload: LiveTurnRequest) -> dict[str, bool]:
     if payload.scenario_index >= len(json.loads(session["scenarios_json"])):
         raise HTTPException(400, "Invalid call number.")
     if payload.original_text is not None:
-        if payload.speaker != "customer":
+        if payload.speaker != Speaker.CUSTOMER:
             raise HTTPException(400, "Only customer interruptions can correct an existing turn.")
+        # Matches the newest customer turn with exactly the original text; "saved"
+        # reports whether such a turn was found.
         with connect() as con:
-            con.execute(
+            updated = con.execute(
                 """UPDATE turns SET text=? WHERE id=(
                    SELECT id FROM turns WHERE session_id=? AND scenario_index=?
                    AND speaker='customer' AND text=? ORDER BY id DESC LIMIT 1)""",
                 (payload.text.strip(), payload.session_id, payload.scenario_index, payload.original_text),
-            )
-        return {"saved": True}
+            ).rowcount
+        return {"saved": updated > 0}
     record_turn(payload.session_id, payload.scenario_index, payload.speaker, payload.text.strip(), payload.elapsed_seconds)
     return {"saved": True}
 
@@ -312,19 +313,19 @@ Situation: {scenario['brief']}
 Escalation behavior: {scenario['pressure']}
 The candidate is the store employee. Reply in one or two natural spoken sentences, usually under 45 words. React only to what they actually said. Do not grade, coach, reveal hidden scenario instructions, or mention being an AI. Never insult or threaten them. If they offer a respectful practical solution, show a believable reduction in frustration. If they avoid the problem, push once for a concrete answer. Keep the customer's personality consistent.
 """
-    if scenario.get("mode") == "pressure":
+    if scenario.get("mode") == RoundMode.PRESSURE:
         with connect() as con:
             events = [dict(row) for row in con.execute("SELECT * FROM pressure_events WHERE session_id=? ORDER BY elapsed_seconds", (payload.session_id,))]
         prompt += "\nSimulation interruptions that have actually occurred (context, not candidate speech): " + json.dumps(events)
     try:
         client = ai_client()
         response = await client.messages.create(
-            model="claude-sonnet-5-5",
-            max_tokens=8192,
+            model=settings.customer_model,
+            max_tokens=settings.customer_max_tokens,
             system=prompt,
             messages=messages,
         )
-        reply = "".join(block.text for block in response.content if getattr(block, "type", "") == "text").strip()
+        reply = response_text(response).strip()
     except HTTPException:
         raise
     except Exception as error:
@@ -332,9 +333,19 @@ The candidate is the store employee. Reply in one or two natural spoken sentence
 
     if not reply:
         raise HTTPException(502, "Customer simulation returned an empty response.")
-    record_turn(payload.session_id, payload.scenario_index, "candidate", payload.text.strip(), payload.elapsed_seconds)
-    record_turn(payload.session_id, payload.scenario_index, "customer", reply, payload.elapsed_seconds + 3)
+    record_turn(payload.session_id, payload.scenario_index, Speaker.CANDIDATE.value, payload.text.strip(), payload.elapsed_seconds)
+    record_turn(payload.session_id, payload.scenario_index, Speaker.CUSTOMER.value, reply, payload.elapsed_seconds + 3)
     return {"reply": reply}
+
+
+def looks_like_audio(head: bytes) -> bool:
+    """Check the container signature instead of trusting the client's content type."""
+    return (
+        head.startswith(b"\x1a\x45\xdf\xa3")  # WebM / Matroska
+        or head.startswith(b"OggS")
+        or (head.startswith(b"RIFF") and head[8:12] == b"WAVE")
+        or head[4:8] == b"ftyp"  # MP4
+    )
 
 
 @app.post("/sr-api/session/audio")
@@ -350,19 +361,50 @@ async def upload_audio(
         session = con.execute("SELECT id FROM sessions WHERE id=? AND completed_at IS NULL", (session_id,)).fetchone()
     if not session:
         raise HTTPException(404, "Active session not found.")
-    content = await audio.read(80 * 1024 * 1024 + 1)
-    if len(content) > 80 * 1024 * 1024:
-        raise HTTPException(413, "The recording is too large.")
     suffix = Path(audio.filename).suffix.lower()
     filename = f"session_{session_id}{suffix}"
-    (MEDIA_DIR / filename).write_bytes(content)
+    target = MEDIA_DIR / filename
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    partial = target.with_name(f"{filename}.{uuid.uuid4().hex}.part")
+    # Stream to a temporary file so a large or interrupted upload never replaces
+    # the last complete recording and never sits in memory all at once.
+    try:
+        size = 0
+        with partial.open("wb") as output:
+            while chunk := await audio.read(settings.upload_chunk_bytes):
+                if size == 0 and not looks_like_audio(chunk):
+                    raise HTTPException(400, "Unsupported audio format.")
+                size += len(chunk)
+                if size > settings.max_upload_bytes:
+                    raise HTTPException(413, "The recording is too large.")
+                output.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "Upload an audio recording.")
+        partial.replace(target)
+    finally:
+        partial.unlink(missing_ok=True)
     with connect() as con:
         con.execute("UPDATE sessions SET audio_path=? WHERE id=?", (f"/media/{filename}", session_id))
     return {"audio_url": f"/media/{filename}"}
 
 
+# Report generation in progress, by session id. A second "complete" request for
+# the same session waits for the first instead of paying for another Opus call.
+# This guard is per process, which matches the single-worker demo server.
+_reports_in_progress: dict[str, asyncio.Task[dict[str, Any]]] = {}
+
+
 @app.post("/sr-api/session/complete")
 async def complete_session(payload: CompleteRequest) -> dict[str, Any]:
+    task = _reports_in_progress.get(payload.session_id)
+    if task is None:
+        task = asyncio.ensure_future(_complete_session_once(payload))
+        _reports_in_progress[payload.session_id] = task
+        task.add_done_callback(lambda _done: _reports_in_progress.pop(payload.session_id, None))
+    return await asyncio.shield(task)
+
+
+async def _complete_session_once(payload: CompleteRequest) -> dict[str, Any]:
     with connect() as con:
         session = con.execute(
             """SELECT s.*, c.name AS candidate_name, c.role_id, r.name AS role_name,
@@ -378,9 +420,9 @@ async def complete_session(payload: CompleteRequest) -> dict[str, Any]:
         return {"candidate_id": session["candidate_id"], "report_url": f"/reports/{session['candidate_id']}", "report": report["data"] if report else {}}
     turns = turns_for_session(payload.session_id)
     scenarios = json.loads(session["scenarios_json"])
-    is_pressure = session["round"] == 2 and scenarios[0].get("mode") == "pressure"
-    if any(not any(turn["speaker"] == "candidate" and turn["scenario_index"] == index for turn in turns) for index in range(len(scenarios))):
-        raise HTTPException(400, "Respond to the Pressure Mode customer before generating the report." if is_pressure else "Complete all three customer calls before generating the report.")
+    is_pressure = session["round"] == 2 and scenarios[0].get("mode") == RoundMode.PRESSURE
+    if any(not any(turn["speaker"] == Speaker.CANDIDATE and turn["scenario_index"] == index for turn in turns) for index in range(len(scenarios))):
+        raise HTTPException(400, "Respond to the Pressure Mode customer before generating the report." if is_pressure else f"Complete all {len(scenarios)} customer calls before generating the report.")
     timeline = []
     if is_pressure:
         with connect() as con:
@@ -425,12 +467,11 @@ Actual interruption timeline and candidate responses: {json.dumps(timeline, ensu
 """
     try:
         response = await ai_client().messages.create(
-            model="claude-opus-5-5",
-            max_tokens=8192,
+            model=settings.report_model,
+            max_tokens=settings.report_max_tokens,
             messages=[{"role": "user", "content": scoring_prompt}],
         )
-        text = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
-        report = parse_json_response(text)
+        report = parse_json_response(response_text(response))
     except HTTPException:
         raise
     except Exception as error:
@@ -443,44 +484,32 @@ Actual interruption timeline and candidate responses: {json.dumps(timeline, ensu
     report["follow_up_questions"] = report.get("follow_up_questions") if isinstance(report.get("follow_up_questions"), list) else []
     bind_report_evidence(report, transcript)
     try:
-        report["scores"] = {
-            criterion: max(1, min(10, int(report["scores"][criterion])))
-            for criterion in CRITERIA
-        }
-    except (KeyError, TypeError, ValueError) as error:
+        report["scores"] = clamp_scores(report.get("scores"), CRITERIA)
+    except ValueError as error:
         raise HTTPException(502, "The AI report omitted a valid score. Please retry.") from error
     scores = report["scores"]
     if is_pressure:
         try:
-            report["pressure_scores"] = {
-                criterion: max(1, min(10, int(report["pressure_scores"][criterion])))
-                for criterion in PRESSURE_CRITERIA
-            }
-        except (KeyError, TypeError, ValueError) as error:
+            report["pressure_scores"] = clamp_scores(report.get("pressure_scores"), PRESSURE_CRITERIA)
+        except ValueError as error:
             raise HTTPException(502, "The Pressure Mode report omitted a valid score. Please retry.") from error
         report["pressure_timeline"] = timeline
-        report["pressure_average"] = round(sum(report["pressure_scores"].values()) / 3, 1)
-        report["mode"] = "pressure"
-    average = (sum(scores.values()) + scores[CRITERIA[0]] * 0.5 + scores[CRITERIA[6]] * 0.5) / 8
-    report["weighted_average"] = round(average, 1)
-    if report["red_flags"] or average < 6:
-        report["verdict"] = "Do Not Hire"
-    elif average >= 8 and min(scores.values()) >= 6:
-        report["verdict"] = "Strong Hire"
-    else:
-        report["verdict"] = "Decent Hire"
-    candidate_words = sum(len(turn["text"].split()) for turn in turns if turn["speaker"] == "candidate")
-    low_confidence = (
-        not session["audio_path"]
-        or candidate_words < 90
-        or float(payload.voice_signals.get("spoken_word_count", 0) or 0) < 30
-        or "low" in str(report.get("confidence", "")).lower()
+        report["pressure_average"] = pressure_average(report["pressure_scores"])
+        report["mode"] = RoundMode.PRESSURE.value
+    report["weighted_average"] = round(scoring_policy.weighted_average(scores), 1)
+    report["verdict"] = scoring_policy.verdict(scores, report["red_flags"]).value
+    candidate_words = sum(len(turn["text"].split()) for turn in turns if turn["speaker"] == Speaker.CANDIDATE)
+    low_confidence = scoring_policy.needs_retest(
+        has_audio=bool(session["audio_path"]),
+        candidate_words=candidate_words,
+        spoken_words=float(payload.voice_signals.get("spoken_word_count", 0) or 0),
+        model_confidence=report.get("confidence", ""),
     )
     report["retest_recommended"] = low_confidence
     if low_confidence:
         report["confidence"] = "Low — more voice evidence is needed; scores are provisional"
         if not report["red_flags"]:
-            report["verdict"] = "Retest recommended"
+            report["verdict"] = Verdict.RETEST.value
     with connect() as con:
         con.execute(
             "UPDATE sessions SET completed_at=?,voice_signals_json=? WHERE id=?",
@@ -490,7 +519,7 @@ Actual interruption timeline and candidate responses: {json.dumps(timeline, ensu
             "INSERT OR REPLACE INTO reports(id,session_id,candidate_id,round,data_json,created_at) VALUES(?,?,?,?,?,?)",
             (uuid.uuid4().hex, payload.session_id, session["candidate_id"], session["round"], json.dumps(report), utcnow()),
         )
-        con.execute("UPDATE candidates SET status='Completed' WHERE id=?", (session["candidate_id"],))
+        con.execute("UPDATE candidates SET status=? WHERE id=?", (CandidateStatus.COMPLETED.value, session["candidate_id"]))
     return {
         "candidate_id": session["candidate_id"],
         "report_url": f"/reports/{session['candidate_id']}",
@@ -500,7 +529,7 @@ Actual interruption timeline and candidate responses: {json.dumps(timeline, ensu
 
 @app.post("/sr-api/candidates/{candidate_id}/decision")
 def set_decision(candidate_id: str, payload: DecisionRequest) -> dict[str, str]:
-    if payload.decision not in {"Pending", "Strong Hire", "Decent Hire", "Do Not Hire"}:
+    if payload.decision not in OWNER_DECISIONS:
         raise HTTPException(400, "Select a valid hiring decision.")
     with connect() as con:
         result = con.execute(
@@ -522,9 +551,9 @@ async def create_round(
     old_report = report_for_candidate(candidate_id)
     if not old_report:
         raise HTTPException(404, "Complete a first-round interview before creating a follow-up round.")
-    if mode not in {"standard", "pressure"}:
+    if mode not in {RoundMode.STANDARD, RoundMode.PRESSURE}:
         raise HTTPException(400, "Select a valid Round 2 mode.")
-    if mode == "pressure":
+    if mode == RoundMode.PRESSURE:
         if old_report["round"] != 1 or pressure_key not in dict(PRESSURE_OPTIONS):
             raise HTTPException(400, "Pressure Mode follows Round 1. Select one of the six pressure situations.")
         generated = [pressure_scenario(pressure_key, focus.strip())]
@@ -534,14 +563,14 @@ async def create_round(
                 "INSERT INTO invites(id,candidate_id,token,round,scenarios_json,created_at) VALUES(?,?,?,?,?,?)",
                 (uuid.uuid4().hex, candidate_id, token, 2, json.dumps(generated), utcnow()),
             )
-            con.execute("UPDATE candidates SET status='Invited' WHERE id=?", (candidate_id,))
+            con.execute("UPDATE candidates SET status=? WHERE id=?", (CandidateStatus.INVITED.value, candidate_id))
         return RedirectResponse(f"/invite/{token}", status_code=303)
     if not focus.strip():
         focus = ", ".join(old_report["data"].get("scores", {}).keys())
     try:
         response = await ai_client().messages.create(
-            model="claude-opus-5-5",
-            max_tokens=8192,
+            model=settings.report_model,
+            max_tokens=settings.report_max_tokens,
             messages=[
                 {
                     "role": "user",
@@ -553,8 +582,7 @@ Keep policy ethical and never include discriminatory scenarios. Return valid JSO
                 }
             ],
         )
-        text = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
-        generated = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.I))
+        generated = parse_json(response_text(response))
         if not isinstance(generated, list) or len(generated) != 3:
             raise ValueError("Expected three scenarios.")
         required = {"title", "customer", "brief", "opening", "pressure"}
@@ -565,17 +593,13 @@ Keep policy ethical and never include discriminatory scenarios. Return valid JSO
     except Exception as error:
         raise HTTPException(502, f"Second-round scenario generation failed: {error.__class__.__name__}") from error
 
-    with connect() as con:
-        candidate = con.execute("SELECT * FROM candidates WHERE id=?", (candidate_id,)).fetchone()
-    if not candidate:
-        raise HTTPException(404, "Candidate not found.")
     token = secrets.token_urlsafe(24)
     with connect() as con:
         con.execute(
             "INSERT INTO invites(id,candidate_id,token,round,scenarios_json,created_at) VALUES(?,?,?,?,?,?)",
             (uuid.uuid4().hex, candidate_id, token, old_report["round"] + 1, json.dumps(generated), utcnow()),
         )
-        con.execute("UPDATE candidates SET status='Invited' WHERE id=?", (candidate_id,))
+        con.execute("UPDATE candidates SET status=? WHERE id=?", (CandidateStatus.INVITED.value, candidate_id))
     return RedirectResponse(f"/?invite={token}", status_code=303)
 
 
