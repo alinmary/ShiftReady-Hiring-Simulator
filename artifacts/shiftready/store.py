@@ -110,6 +110,14 @@ def initialize() -> None:
                 FOREIGN KEY(session_id) REFERENCES sessions(id),
                 FOREIGN KEY(candidate_id) REFERENCES candidates(id)
             );
+            CREATE TABLE IF NOT EXISTS pressure_events (
+                session_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                label TEXT NOT NULL, speaker TEXT NOT NULL, text TEXT NOT NULL,
+                scheduled_seconds REAL NOT NULL, elapsed_seconds REAL NOT NULL,
+                delivery TEXT NOT NULL,
+                PRIMARY KEY(session_id,event_id),
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
             """
         )
         if con.execute("SELECT COUNT(*) FROM roles").fetchone()[0] == 0:

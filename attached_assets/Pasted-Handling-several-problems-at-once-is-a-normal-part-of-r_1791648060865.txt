@@ -1,0 +1,42 @@
+Handling several problems at once is a normal part of retail management, especially at peak times, and it’s one of the best ways to tell a strong manager from an average one. Anyone can stay polite with one calm customer; the real test is what they do when three things go wrong together.
+
+Realistic “everything at once” situations
+Scenario	What’s happening at the same time
+Saturday rush	Angry customer on the phone + a staff member says the card machine is down + the queue is out the door
+Short-staffed peak	2 staff called in sick + a delivery truck arrives early + a customer complains about waiting
+Safety incident mid-complaint	Handling a complaint when a staff member shouts “someone slipped in aisle 3!”
+Boss calls at the worst time	The area manager wants sales figures right now, while a VIP customer is standing at the counter
+Suspected shoplifter during a sale	A staff member reports a possible shoplifter while the floor is packed and a customer is mid-complaint
+Closing-time chaos	The till is short + an employee wants to leave early for an emergency + a customer arrives 2 minutes before closing
+What this reveals
+Skill	Strong candidate	Weak candidate
+Triage	Deals with safety first, then money or operations, then complaints	Treats everything as equally urgent, or ignores the emergency
+Delegation	“Priya, put out a wet-floor sign and call first aid, I’ll be there in 30 seconds”	Tries to do everything personally
+Communication under interruption	“I’m so sorry, I need to put you on hold for 30 seconds for a safety issue. I’ll be right back.”	Hangs up, or ignores the colleague
+Closing the loop	Comes back to the customer and finishes the job	Forgets the first problem entirely
+Composure	Tone stays steady	Rushes, sounds stressed, snaps
+
+Closing the loop is a strong signal judges will love: did the candidate remember and return to the first problem?
+
+How to simulate it with voice
+
+This would be your signature “Pressure Mode” scenario. Here’s how a 4-minute call would play out:
+
+0:00  Angry customer (phone): "I was overcharged and I'm posting a review!"
+0:45  ⚡ Staff member interrupts (different voice): "Card machine's down, queue's huge!"
+1:30  ⚡ Staff member: "Someone slipped near aisle 3!"
+2:30  Customer (if left on hold): "Hello?? Are you still there?"
+3:30  Wrap-up: did they return and resolve the original complaint?
+
+How I’d build it:
+
+The angry customer is the live ElevenLabs agent, as planned.
+The interruptions are short clips in a different voice (a staff member), played at set times. When one plays, the app tells the AI customer what just happened, so the customer reacts realistically: “Excuse me, are you even listening to me?”
+The difficulty adapts. If the candidate copes well, the customer gets more impatient; if they’re struggling, events can be spaced out.
+The scoring adds 3 criteria for this scenario: Prioritisation, Delegation and Closing the loop. The report shows a timeline of each interruption and how the candidate responded to it.
+How it fits the product
+Round 1: the 3 standard scenarios (customer, staff, ethics).
+Round 2: if the owner picks “stress test on composure / prioritisation”, the candidate gets a Pressure Mode scenario.
+For the demo: a judge does a Pressure Mode call live, then sees the timeline. That would be the high point of the presentation.
+
+My recommendation: build Pressure Mode as a premium scenario, but after the core loop works (one call → score → report). It’s the most impressive feature but also the trickiest, and the timed interruptions need testing.

@@ -2,3 +2,4 @@
 - [Managed development command paths](managed-development-paths.md) — artifact development commands start from the artifact directory, not the workspace root.
 - [ElevenLabs English live-agent compatibility](elevenlabs-live-agent-compatibility.md) — native English agents rejected Flash v2.5; ordinary TTS and live-agent model support differ.
 - [Dashboard presentation scope](dashboard-presentation.md) — keep the overview and hiring pipeline; do not reintroduce a separate invite-success/copy-link panel.
+- [Pressure Mode scoring scope](pressure-mode-scope.md) — Round 2 adds pressure evidence without replacing Round 1 or changing the original score comparison.

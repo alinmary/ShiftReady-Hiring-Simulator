@@ -21,6 +21,15 @@
   --shadow: 0 12px 36px rgba(0, 0, 0, .3);
   --ease: cubic-bezier(.2, .7, .2, 1);
 }
+[hidden] { display: none !important; }
+.pressure-live { margin: 12px 0; padding: 16px; border: 1px solid var(--warn); border-radius: 12px; background: var(--warn-soft); }
+.pressure-live .eyebrow { color: var(--warn); }
+.pressure-status { margin: 8px 0; color: var(--ink-2); font-size: 12px; }
+.pressure-events { margin: 0; padding-left: 20px; font-size: 12px; max-height: 190px; overflow-y: auto; }
+.pressure-events li { padding: 7px 0; }
+.pressure-events p { margin: 4px 0; line-height: 1.5; }
+.pressure-review { margin-top: 24px; }
+.pressure-review h3 { margin-top: 28px; }
 * { box-sizing: border-box; }
 html { background: var(--paper); color: var(--ink); font-family: "DM Sans", sans-serif; scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
 body { margin: 0; min-height: 100dvh; line-height: 1.5; }

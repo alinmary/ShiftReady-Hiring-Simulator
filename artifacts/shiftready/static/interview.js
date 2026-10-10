@@ -45,6 +45,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastTypedText = "";
   let pendingTurns = [];
   let savingTurns = false;
+  let pressureMode = null;
+  let pressureAudioActive = false;
 
   async function postJson(path, data) {
     const response = await fetch(path, {
@@ -101,6 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
     candidateTurnCount += 1;
     candidateTranscript += ` ${text}`;
     currentScenarioHasReply = true;
+    pressureMode?.candidate(text);
   }
 
   function stopCustomerAudio() {
@@ -111,7 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function recordCustomerAudio(base64Audio) {
-    if (!audioContext || !mixedDestination) return;
+    if (!audioContext || !mixedDestination || pressureAudioActive) return;
     const raw = atob(base64Audio);
     const samples = new Int16Array(raw.length / 2);
     const bytes = new Uint8Array(samples.buffer);
@@ -131,6 +134,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function renderScenario() {
     const item = scenarioCards[scenarioIndex];
+    if (item.mode === "pressure") {
+      pressureMode = new window.PressureMode({
+        scenario: item, staffVoice: app.dataset.staffVoiceId, customerVoice: app.dataset.voiceId,
+        previousEvents: session.pressureEvents || [],
+        context: (text) => liveCall?.context(text),
+        post: (data) => postJson("/sr-api/session/pressure-event", { session_id: session.id, ...data }),
+        markSpeech: (event_id) => postJson("/sr-api/session/pressure-event", {
+          session_id: session.id, event_id, elapsed_seconds: Math.min(300, (Date.now() - scenarioStartedAt) / 1000),
+          delivery: "speech",
+        }),
+        quiet: (muted) => {
+          pressureAudioActive = muted;
+          liveCall?.volume(muted ? 0 : 1);
+          liveCall?.mute(muted || micMuted);
+          if (muted) stopCustomerAudio();
+        },
+        record: (audio) => {
+          if (audioContext && mixedDestination) {
+            const source = audioContext.createMediaElementSource(audio);
+            source.connect(mixedDestination);
+            source.connect(audioContext.destination);
+          }
+        },
+        onError: (text) => { callError.textContent = text; },
+      });
+      finishButton.disabled = true;
+    }
     document.getElementById("scenarioLabel").textContent = `CALL ${scenarioIndex + 1} OF ${scenarioCards.length}`;
     document.getElementById("scenarioTitle").textContent = item.title;
     document.getElementById("scenarioBrief").textContent = item.brief;
@@ -145,7 +175,7 @@ document.addEventListener("DOMContentLoaded", () => {
     replyText.focus();
     sendButton.disabled = false;
     callError.textContent = "";
-    scenarioStartedAt = Date.now();
+    scenarioStartedAt = item.mode === "pressure" ? new Date(session.startedAt).getTime() : Date.now();
     startTimer();
     liveConnected = false;
     lastTypedText = "";
@@ -207,10 +237,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const timer = document.getElementById("timer");
     timerId = setInterval(() => {
       const remaining = Math.max(0, 240 - Math.floor((Date.now() - scenarioStartedAt) / 1000));
+      if (pressureMode) {
+        pressureMode.tick(Math.min(300, (Date.now() - scenarioStartedAt) / 1000));
+        finishButton.disabled = remaining > 0 || !pressureMode.ready;
+      }
       timer.textContent = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
       if (remaining === 0) {
-        clearInterval(timerId);
-        callError.textContent = "Time is up for this call. You can continue to the next one.";
+        if (!pressureMode || pressureMode.ready) clearInterval(timerId);
+        callError.textContent = pressureMode ? "Time is up. Finish this Pressure Mode call when all interruptions have been delivered." : "Time is up for this call. You can continue to the next one.";
         nextButton.classList.toggle("hidden", scenarioIndex >= scenarioCards.length - 1);
         finishButton.classList.toggle("hidden", scenarioIndex < scenarioCards.length - 1);
       }
@@ -252,6 +286,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const pick = voices.find((voice) => /indian|south asian/i.test(`${voice.name} ${JSON.stringify(voice.labels || {})}`)) || voices[0];
     if (!pick?.voice_id) throw new Error("No voices are available in the connected ElevenLabs account.");
     app.dataset.voiceId = pick.voice_id;
+    const staff = voices.find((voice) => voice.voice_id !== pick.voice_id);
+    if (staff) app.dataset.staffVoiceId = staff.voice_id;
   }
 
   async function prepareAudio() {
@@ -374,6 +410,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let interviewStartedAt = Date.now();
 
   async function complete() {
+    if (pressureMode && (!pressureMode.ready || Date.now() - scenarioStartedAt < 240000)) {
+      callError.textContent = "Finish the four-minute Pressure Mode call and all interruptions first.";
+      return;
+    }
     if (!currentScenarioHasReply) {
       callError.textContent = "Please respond to the customer before finishing.";
       return;
@@ -391,6 +431,7 @@ document.addEventListener("DOMContentLoaded", () => {
       liveConnected = false;
       stopCustomerAudio();
       await savePendingTurns();
+      pressureMode?.stop();
       const blob = await finishRecording();
       if (blob?.size) {
         const form = new FormData();
@@ -420,7 +461,10 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       await loadVoice();
       const response = await postJson("/sr-api/session/start", { token });
-      session = { id: response.session_id, startedAt: new Date().toISOString() };
+      session = {
+        id: response.session_id, startedAt: response.started_at || new Date().toISOString(),
+        pressureEvents: response.pressure_events || [],
+      };
       scenarioCards = response.scenarios;
       const available = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
       if (available) {
@@ -447,7 +491,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       intro.classList.add("hidden");
       app.classList.remove("hidden");
-      interviewStartedAt = Date.now();
+      interviewStartedAt = scenarioCards[0]?.mode === "pressure" ? new Date(session.startedAt).getTime() : Date.now();
       steps.innerHTML = "";
       scenarioCards.forEach((scenario, index) => {
         const step = document.createElement("div");
@@ -458,7 +502,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const title = document.createElement("strong");
         title.textContent = scenario.title;
         const subtitle = document.createElement("small");
-        subtitle.textContent = "Customer call";
+        subtitle.textContent = scenario.mode === "pressure" ? "Pressure Mode · 4 minutes" : "Customer call";
         label.append(title, subtitle);
         step.append(number, label);
         steps.appendChild(step);

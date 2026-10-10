@@ -5,7 +5,11 @@
   <section class="candidate-intro" id="candidateIntro">
     <p class="eyebrow">VOICE SIMULATION · ROUND {{ candidate.round }}</p>
     <h1>Hi {{ candidate.name.split(' ')[0] }},<br><span>let’s get started.</span></h1>
+    {% if scenarios[0].mode == "pressure" %}
+    <p class="lede">Round 2 · <strong>Pressure Mode: {{ scenarios[0].title }}</strong>. Handle one four-minute customer call for a <strong>{{ candidate.role_name }}</strong> role while staff interrupt with competing priorities. Talk through your priorities, delegate clearly, and return to the original customer.</p>
+    {% else %}
     <p class="lede">You’ll handle three short customer phone calls for a <strong>{{ candidate.role_name }}</strong> role. Speak naturally, as if you were helping a customer in a real store. Each call has a four-minute limit.</p>
+    {% endif %}
     <div class="candidate-brief">
       <div class="brief-icon">01</div><div><strong>Check your microphone</strong><p>Allow microphone access and use headphones if available. You can type instead if speech recognition is not supported.</p></div>
     </div>
@@ -44,5 +48,6 @@
 </main>
 <script src="/api/elevenlabs/live/client.js" defer></script>
 <script src="/static/live-call.js" defer></script>
+<script src="/static/pressure-mode.js" defer></script>
 <script src="/static/interview.js" defer></script>
 {% endblock %}

@@ -40,9 +40,28 @@
       {% endfor %}
     </section>
     <section class="panel followup-panel"><p class="eyebrow">HUMAN INTERVIEW</p><h2>Suggested follow-up</h2><ol>{% for question in report.data.follow_up_questions %}<li>{{ question }}</li>{% endfor %}</ol>
-      {% if report.round < 2 %}<hr><p class="eyebrow">NEXT ROUND</p><h3>Stress-test a skill</h3><p>Create three harder customer calls based on your focus areas.</p><form action="/rounds/{{ report.candidate_id }}" method="post"><label>Focus area<textarea name="focus" rows="3" placeholder="e.g. escalation judgment and staying composed under pressure"></textarea></label><button class="button button-accent" type="submit">Generate round 2 invite →</button></form>{% endif %}
+      {% if report.round < 2 %}<hr><p class="eyebrow">NEXT ROUND</p><h3>Stress-test a skill</h3><p>Create three harder customer calls based on your focus areas, or select a four-minute Pressure Mode call.</p><form action="/rounds/{{ report.candidate_id }}" method="post"><label>Round 2 mode<select name="mode" id="roundMode"><option value="standard">Standard · three harder customer calls</option><option value="pressure">Pressure Mode · composure / prioritisation</option></select></label><label id="pressureSituation" hidden>Pressure situation<select name="pressure_key">{% for key, title in pressure_options %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select></label><label>Focus area<textarea name="focus" rows="3" placeholder="e.g. escalation judgment and staying composed under pressure"></textarea></label><button class="button button-accent" type="submit">Generate round 2 invite →</button></form>{% endif %}
     </section>
   </section>
+
+  {% if report.data.mode == "pressure" %}
+  <section class="panel pressure-review">
+    <p class="eyebrow">ROUND 2 · PRESSURE MODE</p><h2>Managing competing priorities</h2>
+    <p class="muted">Three additional criteria, scored separately from the original seven. Pressure average: {{ "%.1f"|format(report.data.pressure_average) }}/10.</p>
+    {% for criterion, score in report.data.pressure_scores.items() %}
+    <div class="score-row"><div class="score-label"><span>{{ criterion }}</span><strong>{{ score }}<small>/10</small></strong></div><div class="score-track"><i style="width:{{ score * 10 }}%"></i></div></div>
+    {% endfor %}
+    <h3>Interruption &amp; response timeline</h3>
+    {% for event in report.data.pressure_timeline %}
+    <article class="highlight-item">
+      <button class="timestamp" data-play-at="{{ event.timestamp_seconds }}" {% if not report.audio_path %}disabled{% endif %}>{{ "%02d"|format(event.timestamp_seconds|int // 60) }}:{{ "%02d"|format(event.timestamp_seconds|int % 60) }}</button>
+      <div><strong>{{ event.label }} · {{ event.speaker|title }}</strong><blockquote>“{{ event.text }}”</blockquote>
+      <p class="muted">Scheduled {{ event.scheduled_seconds|int }}s · delivered as {{ event.delivery }}{% if event.timestamp_seconds > event.scheduled_seconds + 5 %} · spaced out to allow thinking time{% endif %}</p>
+      {% for response in event.responses %}<p><strong>Candidate · {{ "%02d"|format(response.timestamp_seconds|int // 60) }}:{{ "%02d"|format(response.timestamp_seconds|int % 60) }}</strong><br>“{{ response.text }}”</p>{% else %}<p class="muted">No candidate response was captured before the next event.</p>{% endfor %}</div>
+    </article>
+    {% endfor %}
+  </section>
+  {% endif %}
 
   {% if report.rounds|length > 1 %}
   <section class="panel rounds-panel"><p class="eyebrow">PROGRESSION</p><h2>Round comparison</h2><div class="round-comparison">{% for item in report.rounds %}<div><span>ROUND {{ item.round }}</span><strong>{{ "%.1f"|format(item.data.weighted_average) }}</strong><small>{{ item.data.verdict }} recommendation</small></div>{% endfor %}</div></section>
@@ -50,4 +69,12 @@
   <p class="page-footnote">ShiftReady provides structured interview support. Do not use this report as the sole basis for an employment decision.</p>
 </main>
 <script src="/static/report.js" defer></script>
+<script>
+const roundMode = document.getElementById("roundMode");
+if (roundMode) {
+  const updateMode = () => { document.getElementById("pressureSituation").hidden = roundMode.value !== "pressure"; };
+  roundMode.addEventListener("change", updateMode);
+  updateMode();
+}
+</script>
 {% endblock %}

@@ -40,6 +40,8 @@ class LiveCustomerCall {
   }
 
   send(text) { this.connection?.sendUserMessage(text); }
+  context(text) { this.connection?.sendContextualUpdate(text); }
+  volume(volume) { this.connection?.setVolume({ volume }); }
   mute(muted) { this.connection?.setMicMuted(muted); }
   async stop() {
     this.closed = true;
