@@ -1,8 +1,10 @@
 import { Router, type IRouter } from "express";
 import { ReplitConnectors } from "@replit/connectors-sdk";
+import liveRouter from "./live-elevenlabs";
 
 const router: IRouter = Router();
 const connectors = new ReplitConnectors();
+router.use("/elevenlabs/live", liveRouter);
 
 router.get("/elevenlabs/voices", async (_req, res) => {
   try {

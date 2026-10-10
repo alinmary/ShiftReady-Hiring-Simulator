@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from evidence import bind_report_evidence
 
 from store import (
     CRITERIA,
@@ -83,6 +84,11 @@ class TurnRequest(BaseModel):
 class CompleteRequest(BaseModel):
     session_id: str
     voice_signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class LiveTurnRequest(TurnRequest):
+    speaker: str
+    original_text: str | None = Field(default=None, max_length=1600)
 
 
 class DecisionRequest(BaseModel):
@@ -162,7 +168,7 @@ def report_page(request: Request, candidate_id: str) -> HTMLResponse:
     )
 
 
-@app.post("/api/session/start")
+@app.post("/sr-api/session/start")
 def start_session(payload: StartRequest) -> dict[str, Any]:
     candidate = candidate_by_token(payload.token)
     if not candidate:
@@ -171,6 +177,12 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
         raise HTTPException(409, "This invitation has already been completed.")
 
     with connect() as con:
+        completed = con.execute(
+            "SELECT id FROM sessions WHERE invite_id=? AND completed_at IS NOT NULL LIMIT 1",
+            (candidate["invite_id"],),
+        ).fetchone()
+        if completed:
+            raise HTTPException(409, "This invitation has already been completed.")
         active = con.execute(
             "SELECT id FROM sessions WHERE invite_id=? AND completed_at IS NULL ORDER BY started_at DESC LIMIT 1",
             (candidate["invite_id"],),
@@ -187,26 +199,40 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
             con.execute("UPDATE candidates SET status='In progress' WHERE id=?", (candidate["id"],))
 
     scenarios = json.loads(candidate["scenarios_json"])
-    for index, scenario in enumerate(scenarios):
-        if not any(turn["scenario_index"] == index for turn in turns_for_session(session_id, index)):
-            record_turn(
-                session_id,
-                index,
-                "customer",
-                scenario["opening"],
-                float(scenario.get("openingSeconds", index * 240)),
-            )
     return {
         "session_id": session_id,
         "scenarios": [
-            {key: scenario[key] for key in ("title", "customer", "brief", "opening")}
+            {key: scenario[key] for key in ("title", "customer", "brief", "opening", "pressure")}
             for scenario in scenarios
         ],
         "round": candidate["round"],
     }
 
 
-@app.post("/api/session/turn")
+@app.post("/sr-api/session/live-turn")
+def live_turn(payload: LiveTurnRequest) -> dict[str, bool]:
+    if payload.speaker not in {"candidate", "customer"}:
+        raise HTTPException(400, "Invalid conversation speaker.")
+    with connect() as con:
+        session = con.execute("SELECT id FROM sessions WHERE id=? AND completed_at IS NULL", (payload.session_id,)).fetchone()
+    if not session:
+        raise HTTPException(404, "This interview session is no longer active.")
+    if payload.original_text is not None:
+        if payload.speaker != "customer":
+            raise HTTPException(400, "Only customer interruptions can correct an existing turn.")
+        with connect() as con:
+            con.execute(
+                """UPDATE turns SET text=? WHERE id=(
+                   SELECT id FROM turns WHERE session_id=? AND scenario_index=?
+                   AND speaker='customer' AND text=? ORDER BY id DESC LIMIT 1)""",
+                (payload.text.strip(), payload.session_id, payload.scenario_index, payload.original_text),
+            )
+        return {"saved": True}
+    record_turn(payload.session_id, payload.scenario_index, payload.speaker, payload.text.strip(), payload.elapsed_seconds)
+    return {"saved": True}
+
+
+@app.post("/sr-api/session/turn")
 async def session_turn(payload: TurnRequest) -> dict[str, Any]:
     with connect() as con:
         session = con.execute(
@@ -218,7 +244,6 @@ async def session_turn(payload: TurnRequest) -> dict[str, Any]:
     scenarios = json.loads(session["scenarios_json"])
     scenario = scenarios[payload.scenario_index]
     transcript = turns_for_session(payload.session_id, payload.scenario_index)
-    record_turn(payload.session_id, payload.scenario_index, "candidate", payload.text.strip(), payload.elapsed_seconds)
 
     messages = [
         {"role": "user" if row["speaker"] == "candidate" else "assistant", "content": row["text"]}
@@ -246,11 +271,12 @@ The candidate is the store employee. Reply in one or two natural spoken sentence
 
     if not reply:
         raise HTTPException(502, "Customer simulation returned an empty response.")
+    record_turn(payload.session_id, payload.scenario_index, "candidate", payload.text.strip(), payload.elapsed_seconds)
     record_turn(payload.session_id, payload.scenario_index, "customer", reply, payload.elapsed_seconds + 3)
     return {"reply": reply}
 
 
-@app.post("/api/session/audio")
+@app.post("/sr-api/session/audio")
 async def upload_audio(
     session_id: str = Form(...),
     audio: UploadFile = File(...),
@@ -263,7 +289,7 @@ async def upload_audio(
         session = con.execute("SELECT id FROM sessions WHERE id=? AND completed_at IS NULL", (session_id,)).fetchone()
     if not session:
         raise HTTPException(404, "Active session not found.")
-    content = await audio.read()
+    content = await audio.read(80 * 1024 * 1024 + 1)
     if len(content) > 80 * 1024 * 1024:
         raise HTTPException(413, "The recording is too large.")
     suffix = Path(audio.filename).suffix.lower()
@@ -274,7 +300,7 @@ async def upload_audio(
     return {"audio_url": f"/media/{filename}"}
 
 
-@app.post("/api/session/complete")
+@app.post("/sr-api/session/complete")
 async def complete_session(payload: CompleteRequest) -> dict[str, Any]:
     with connect() as con:
         session = con.execute(
@@ -290,7 +316,7 @@ async def complete_session(payload: CompleteRequest) -> dict[str, Any]:
         report = report_for_candidate(session["candidate_id"])
         return {"candidate_id": session["candidate_id"], "report_url": f"/reports/{session['candidate_id']}", "report": report["data"] if report else {}}
     turns = turns_for_session(payload.session_id)
-    if sum(1 for turn in turns if turn["speaker"] == "candidate") < 3:
+    if any(not any(turn["speaker"] == "candidate" and turn["scenario_index"] == index for turn in turns) for index in range(3)):
         raise HTTPException(400, "Complete all three customer calls before generating the report.")
 
     scenarios = json.loads(session["scenarios_json"])
@@ -308,6 +334,7 @@ Return one JSON object with keys: scores, weighted_average, verdict, red_flags, 
 scores must contain these exact seven keys with integer scores 1 through 10: {json.dumps(CRITERIA)}.
 Score fairly and consistently. Empathy and Composure have 1.5x weight; all other criteria have 1x. Compute the weighted average over total weight 8, rounded to one decimal. Strong Hire requires average >= 8 and no criterion below 6. Decent Hire is 6.0 to 7.9. Do Not Hire is below 6 or any substantiated red flag.
 Only report a red flag when the transcript provides direct evidence of rudeness, a knowingly false promise, or discriminatory remarks. Quote the exact evidence. Do not infer intent or penalize a candidate for accent, dialect, fluency, grammar, disability, speech impediment, or language style. Vocal Tone & Warmth means calmness, warmth, and respect only; never accent or fluency. Use the recording-derived signals only for pace, pauses, filler words, and relative loudness. If evidence is insufficient for audio criteria, state low confidence and recommend a retest instead of pretending to know tone.
+red_flags must be an array of objects with label (exactly "Rudeness", "Knowingly false promise", or "Discriminatory remarks") and quote (an exact excerpt of the candidate's words, not the customer's).
 highlights must be 2-5 items with kind ("strength" or "coaching"), timestamp_seconds (copied from a relevant transcript entry), criterion, quote (exact transcript excerpt), and note. follow_up_questions must be 2-4 concise questions for a human interviewer.
 Do not make an employment decision. This is advisory support only. Return valid JSON only.
 
@@ -332,14 +359,38 @@ Recording-derived signals: {json.dumps(payload.voice_signals, ensure_ascii=False
 
     report["transcript"] = transcript
     report["signals"] = payload.voice_signals
-    report["weighted_average"] = max(1, min(10, float(report.get("weighted_average", 0))))
     report["red_flags"] = report.get("red_flags") if isinstance(report.get("red_flags"), list) else []
     report["highlights"] = report.get("highlights") if isinstance(report.get("highlights"), list) else []
     report["follow_up_questions"] = report.get("follow_up_questions") if isinstance(report.get("follow_up_questions"), list) else []
-    report["scores"] = {
-        criterion: max(1, min(10, int(report.get("scores", {}).get(criterion, 5))))
-        for criterion in CRITERIA
-    }
+    bind_report_evidence(report, transcript)
+    try:
+        report["scores"] = {
+            criterion: max(1, min(10, int(report["scores"][criterion])))
+            for criterion in CRITERIA
+        }
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(502, "The AI report omitted a valid score. Please retry.") from error
+    scores = report["scores"]
+    average = (sum(scores.values()) + scores[CRITERIA[0]] * 0.5 + scores[CRITERIA[6]] * 0.5) / 8
+    report["weighted_average"] = round(average, 1)
+    if report["red_flags"] or average < 6:
+        report["verdict"] = "Do Not Hire"
+    elif average >= 8 and min(scores.values()) >= 6:
+        report["verdict"] = "Strong Hire"
+    else:
+        report["verdict"] = "Decent Hire"
+    candidate_words = sum(len(turn["text"].split()) for turn in turns if turn["speaker"] == "candidate")
+    low_confidence = (
+        not session["audio_path"]
+        or candidate_words < 90
+        or float(payload.voice_signals.get("spoken_word_count", 0) or 0) < 30
+        or "low" in str(report.get("confidence", "")).lower()
+    )
+    report["retest_recommended"] = low_confidence
+    if low_confidence:
+        report["confidence"] = "Low — more voice evidence is needed; scores are provisional"
+        if not report["red_flags"]:
+            report["verdict"] = "Retest recommended"
     with connect() as con:
         con.execute(
             "UPDATE sessions SET completed_at=?,voice_signals_json=? WHERE id=?",
@@ -357,7 +408,7 @@ Recording-derived signals: {json.dumps(payload.voice_signals, ensure_ascii=False
     }
 
 
-@app.post("/api/candidates/{candidate_id}/decision")
+@app.post("/sr-api/candidates/{candidate_id}/decision")
 def set_decision(candidate_id: str, payload: DecisionRequest) -> dict[str, str]:
     if payload.decision not in {"Pending", "Strong Hire", "Decent Hire", "Do Not Hire"}:
         raise HTTPException(400, "Select a valid hiring decision.")
@@ -412,18 +463,13 @@ Keep policy ethical and never include discriminatory scenarios. Return valid JSO
         candidate = con.execute("SELECT * FROM candidates WHERE id=?", (candidate_id,)).fetchone()
     if not candidate:
         raise HTTPException(404, "Candidate not found.")
-    _new_candidate_id, token = create_candidate(
-        candidate["name"],
-        candidate["email"],
-        candidate["role_id"],
-        round_number=old_report["round"] + 1,
-        scenarios=generated,
-    )
-    # Keep the new invitation attached to the existing candidate, rather than creating a duplicate profile.
+    token = secrets.token_urlsafe(24)
     with connect() as con:
-        invite = con.execute("SELECT id FROM invites WHERE token=?", (token,)).fetchone()
-        con.execute("DELETE FROM candidates WHERE id=?", (_new_candidate_id,))
-        con.execute("UPDATE invites SET candidate_id=? WHERE id=?", (candidate_id, invite["id"]))
+        con.execute(
+            "INSERT INTO invites(id,candidate_id,token,round,scenarios_json,created_at) VALUES(?,?,?,?,?,?)",
+            (uuid.uuid4().hex, candidate_id, token, old_report["round"] + 1, json.dumps(generated), utcnow()),
+        )
+        con.execute("UPDATE candidates SET status='Invited' WHERE id=?", (candidate_id,))
     return RedirectResponse(f"/?invite={token}", status_code=303)
 
 

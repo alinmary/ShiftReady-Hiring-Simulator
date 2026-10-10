@@ -3,3 +3,6 @@
 
 # No need to store the pnpm store twice.
 .local
+.pythonlibs
+__pycache__
+artifacts/shiftready/data

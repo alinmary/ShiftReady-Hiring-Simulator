@@ -24,8 +24,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /elevenlabs/voices:
+    get:
+      operationId: listElevenLabsVoices
+      responses:
+        "200":
+          description: Voices available in the connected account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceList"
+  /elevenlabs/tts:
+    post:
+      operationId: synthesizeCustomerSpeech
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpeechInput"
+      responses:
+        "200":
+          description: Spoken customer reply
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+  /elevenlabs/live/session:
+    post:
+      operationId: connectLiveCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LiveSessionInput"
+      responses:
+        "200":
+          description: Short-lived credential for one browser conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveSession"
+  /elevenlabs/live/client.js:
+    get:
+      operationId: getLiveSpeechClient
+      responses:
+        "200":
+          description: Browser speech client
+          content:
+            application/javascript:
+              schema:
+                type: string
 components:
   schemas:
+    VoiceList:
+      type: object
+      required: [voices]
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voice"
+    Voice:
+      type: object
+      required: [voice_id, name]
+      properties:
+        voice_id: { type: string }
+        name: { type: string }
+        labels: { type: object, additionalProperties: true }
+    SpeechInput:
+      type: object
+      required: [voice_id, text]
+      properties:
+        voice_id: { type: string, minLength: 10, maxLength: 100 }
+        text: { type: string, minLength: 1, maxLength: 2500 }
+    LiveSessionInput:
+      type: object
+      required: [voice_id]
+      properties:
+        voice_id: { type: string, minLength: 10, maxLength: 100 }
+    LiveSession:
+      type: object
+      required: [signed_url]
+      properties:
+        signed_url: { type: string }
     HealthStatus:
       type: object
       properties:

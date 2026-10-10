@@ -1,0 +1,3 @@
+- [ElevenLabs Python connector availability](elevenlabs-python-connector.md) — advertised Python SDK was unavailable in the package registry; use the connected SDK, not a new API key.
+- [Managed development command paths](managed-development-paths.md) — artifact development commands start from the artifact directory, not the workspace root.
+- [ElevenLabs English live-agent compatibility](elevenlabs-live-agent-compatibility.md) — native English agents rejected Flash v2.5; ordinary TTS and live-agent model support differ.

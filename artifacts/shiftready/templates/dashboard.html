@@ -57,9 +57,7 @@
         <div class="candidate-action">
           {% if candidate.report %}<a class="text-link" href="/reports/{{ candidate.id }}">View report <span>↗</span></a>
           {% else %}
-            {% set candidate_invite = namespace(token='') %}
-            {% for invite in [] %}{% endfor %}
-            <span class="muted-action">Awaiting response</span>
+            <a class="text-link" href="/invite/{{ candidate.invite_token }}">Open invite <span>↗</span></a>
           {% endif %}
         </div>
       </article>
@@ -73,4 +71,12 @@
 
   <section class="demo-note"><span class="note-icon">i</span><p><strong>Demo workspace</strong> · Sample candidate reports are clearly marked. AI recommendations support—not replace—the owner’s hiring decision.</p></section>
 </main>
+<script>
+document.querySelectorAll("[data-copy]").forEach(button => button.addEventListener("click", async () => {
+  const input = document.querySelector(button.dataset.copy);
+  input.select();
+  try { await navigator.clipboard.writeText(input.value); button.textContent = "Copied"; }
+  catch (_) { document.execCommand("copy"); button.textContent = "Copied"; }
+}));
+</script>
 {% endblock %}

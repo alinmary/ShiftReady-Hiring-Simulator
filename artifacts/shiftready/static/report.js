@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const status = document.getElementById("decisionSave");
       status.textContent = "Saving…";
       try {
-        const response = await fetch(`/api/candidates/${decision.dataset.candidateId}/decision`, {
+        const response = await fetch(`/sr-api/candidates/${decision.dataset.candidateId}/decision`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ decision: decision.value }),
         });

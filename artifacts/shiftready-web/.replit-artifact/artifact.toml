@@ -1,0 +1,34 @@
+kind = "web"
+previewPath = "/"
+title = "ShiftReady"
+description = "A Python-first retail hiring simulator with three customer phone-call scenarios, structured AI reports, role-based candidate ranking, and targeted follow-up interviews."
+version = "1.0.0"
+id = "artifacts/shiftready-web"
+router = "path"
+
+[[services]]
+name = "web"
+paths = ["/"]
+localPort = 21932
+
+[services.development]
+run = "python ../shiftready/app.py"
+
+[services.production.build]
+args = ["uv", "sync", "--frozen"]
+
+[services.production.build.env]
+UV_PROJECT_ENVIRONMENT = ".pythonlibs"
+
+[services.production.run]
+args = ["python", "artifacts/shiftready/app.py"]
+
+[services.production.run.env]
+PORT = "21932"
+
+[services.production.health.startup]
+path = "/healthz"
+
+[services.env]
+PORT = "21932"
+BASE_PATH = "/"

@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.27.0",
+    "@replit/connectors-sdk": "^0.4.3",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
@@ -22,6 +24,7 @@
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
+    "@types/dom-mediacapture-record": "^1.0.22",
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",
     "esbuild": "0.28.2",

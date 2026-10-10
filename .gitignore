@@ -47,3 +47,9 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Python application state and recordings
+__pycache__/
+*.py[cod]
+.pythonlibs/
+/artifacts/shiftready/data/

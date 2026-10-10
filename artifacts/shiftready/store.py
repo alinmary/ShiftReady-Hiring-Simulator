@@ -155,6 +155,7 @@ def seed_demo_data(con: sqlite3.Connection) -> None:
         weighted = (
             sum(score_map.values()) + score_map[CRITERIA[0]] * 0.5 + score_map[CRITERIA[6]] * 0.5
         ) / 8
+        verdict = "Strong Hire" if weighted >= 8 and min(scores) >= 6 else "Decent Hire" if weighted >= 6 else "Do Not Hire"
         report = {
             "scores": score_map,
             "weighted_average": round(weighted, 1),
@@ -221,13 +222,16 @@ def dashboard_data() -> dict[str, Any]:
                 """SELECT c.*, r.name AS role_name,
                           (SELECT id FROM reports rp WHERE rp.candidate_id=c.id ORDER BY rp.round DESC LIMIT 1) AS report_id,
                           (SELECT data_json FROM reports rp WHERE rp.candidate_id=c.id ORDER BY rp.round DESC LIMIT 1) AS report_json,
-                          (SELECT round FROM reports rp WHERE rp.candidate_id=c.id ORDER BY rp.round DESC LIMIT 1) AS report_round
+                          (SELECT round FROM reports rp WHERE rp.candidate_id=c.id ORDER BY rp.round DESC LIMIT 1) AS report_round,
+                          (SELECT token FROM invites i WHERE i.candidate_id=c.id ORDER BY i.round DESC LIMIT 1) AS invite_token
                    FROM candidates c JOIN roles r ON r.id=c.role_id
                    ORDER BY CASE c.status WHEN 'Invited' THEN 0 WHEN 'In progress' THEN 1 ELSE 2 END, c.created_at DESC"""
             )
         ]
     for candidate in candidates:
-        candidate["report"] = json.loads(candidate.pop("report_json")) if candidate["report_json"] else None
+        serialized = candidate.pop("report_json")
+        candidate["report"] = json.loads(serialized) if serialized else None
+    candidates.sort(key=lambda candidate: (candidate["report"] is None, -float(candidate["report"]["weighted_average"]) if candidate["report"] else 0))
     return {"roles": roles, "candidates": candidates}
 
 

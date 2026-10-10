@@ -40,7 +40,9 @@
       <p class="candidate-error" id="callError" role="alert"></p>
     </section>
   </section>
-  <section class="complete-screen hidden" id="completeScreen"><div class="complete-check">✓</div><p class="eyebrow">INTERVIEW COMPLETE</p><h1>Thank you, {{ candidate.name.split(' ')[0] }}.</h1><p>Your conversations have been saved. The hiring team will review your report and follow up with you.</p><a href="/" class="text-link">Return to ShiftReady</a></section>
+  <section class="complete-screen hidden" id="completeScreen"><div class="complete-check">✓</div><p class="eyebrow">INTERVIEW COMPLETE</p><h1>Thank you, {{ candidate.name.split(' ')[0] }}.</h1><p>Your conversations have been saved. The hiring team will review your report and follow up with you.</p><span class="muted">You can now close this window.</span></section>
 </main>
+<script src="/api/elevenlabs/live/client.js" defer></script>
+<script src="/static/live-call.js" defer></script>
 <script src="/static/interview.js" defer></script>
 {% endblock %}
