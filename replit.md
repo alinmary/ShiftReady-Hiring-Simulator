@@ -7,6 +7,7 @@ Python-first retail voice simulations with evidence-based interview reports for 
 - `python artifacts/shiftready/app.py` — Python web app; registered root preview workflow supplies PORT
 - `pnpm --filter @workspace/api-server run dev` — secure ElevenLabs connector bridge at `/api` (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
+- `scripts/test.sh` — Python (pytest) and JavaScript tests; tests use a temporary database and a fake AI client
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - Python dependencies are in `pyproject.toml` and `uv.lock`; installed with the Replit package manager.
@@ -22,6 +23,8 @@ Python-first retail voice simulations with evidence-based interview reports for 
 ## Where things live
 
 - `artifacts/shiftready/`: Python routes, SQLite store, templates and browser assets.
+- `artifacts/shiftready/config.py`: model names, token and upload limits, data paths.
+- `artifacts/shiftready/domain/`: `ScoringPolicy` (weights, verdicts, retest rules) and named statuses/verdicts. Change scoring rules here only.
 - `artifacts/shiftready-web/`: registered preview service; serves the Python app, not the unused React scaffold.
 - `artifacts/api-server/src/routes/`: ElevenLabs connector bridge and browser speech SDK delivery.
 - FastAPI publishes its Python API contract at `/openapi.json`; bridge contract is `lib/api-spec/openapi.yaml`.
