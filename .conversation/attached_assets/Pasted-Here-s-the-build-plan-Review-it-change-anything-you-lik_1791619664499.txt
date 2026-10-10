@@ -1,0 +1,107 @@
+Here's the build plan. Review it, change anything you like, and once you answer the questions at the end I'll start building in your empty `Hackathon` folder.
+
+# Plan: "ShiftReady" (placeholder name), voice-simulation hiring for retail
+
+## 1. How it works
+
+**Candidate side**
+1. The candidate opens an invite link, does a quick mic check and reads a short brief: "You're working the phone line at the store."
+2. They go through **3 phone-call simulations**. An AI customer talks back in real time: interrupts, gets angry, calms down if handled well. Each call is capped at about 3–4 minutes.
+3. They finish, and the report is generated automatically.
+
+**Shop-owner side**
+1. **Dashboard:** grouped by role (e.g. "Store Associate", "Category Manager"). Each role shows its top candidates ranked by score, not one huge list.
+2. **Candidate report:**
+   - Scores from 1 to 10 on each criterion
+   - A verdict: Strong Hire, Decent Hire or Do Not Hire
+   - **Highlights:** the moments they did well or fumbled, each with a timestamp. Clicking one plays that part of the audio.
+   - The full transcript
+   - Suggested follow-up questions for the next conversation
+3. **Next round:** the owner types or ticks things like "stress-test escalation and composure". The system writes 3 new, harder scenarios aimed at those weak spots and sends the candidate a new link. Round 2 results appear next to round 1.
+
+## 2. Scoring rubric (1–10 each)
+
+| # | Criterion | What it checks | Based on |
+|---|---|---|---|
+| 1 | Empathy & active listening | Acknowledges feelings, paraphrases, doesn't interrupt | Transcript + audio |
+| 2 | Problem resolution | Offers a concrete, workable fix | Transcript |
+| 3 | Escalation judgment | Escalates when needed, not too early or too late | Transcript |
+| 4 | Policy & integrity | No false promises, follows rules, honest | Transcript |
+| 5 | Communication clarity | Clear, structured, no jargon | Transcript |
+| 6 | Vocal tone & warmth | Calm, warm, respectful tone; no sarcasm or curtness | Audio |
+| 7 | Composure under pressure | Stays steady when the customer escalates | Audio + transcript |
+
+**Verdict rules (you can change these):**
+- **Strong Hire:** weighted average ≥ 8 and no criterion below 6
+- **Decent Hire:** average 6–7.9
+- **Do Not Hire:** average below 6, or any **red flag** (rudeness, lying to the customer, discriminatory remarks)
+
+The AI only *recommends*. The owner makes the final call, which also matters legally for AI hiring tools.
+
+## 3. Starting scenarios (all phone calls)
+
+1. **Damaged order, angry customer:** wants a full refund plus compensation beyond policy. Tests empathy, resolution and policy.
+2. **Overcharged and threatening a bad review:** demands the manager immediately. Tests escalation judgment and composure.
+3. **Out-of-stock promise:** a regular customer was promised an item that isn't coming. They're disappointed rather than angry, which tests warmth and honesty.
+
+I'll keep these in a scenario library so roles can mix and match, and round-2 scenarios are generated from it.
+
+## 4. Technology and which model does what
+
+**About audio:** Claude can't take audio files directly. So the plan is:
+- ElevenLabs records the call and transcribes it with word-level timestamps.
+- My code extracts **voice signals** from the recording: speaking pace, pauses, filler words, talking over the customer, loudness and pitch changes.
+- Claude gets both the transcript and those signals, so tone and composure are scored on real audio evidence, not just the words.
+
+| Job | Tool | Why |
+|---|---|---|
+| Real-time AI customer voice | **ElevenLabs Conversational AI agent** | Natural, low-latency voice with interruptions |
+| The customer's "brain" during the call | **Claude Sonnet 5.5** (low effort) | Fast enough for live speech, still convincing |
+| Scoring, highlights, verdict | **Claude Opus 5.5** (high effort) | The most important judgment; needs careful reasoning and consistent results |
+| Round-2 scenario generation | **Claude Opus 5.5** | Has to write targeted, realistic scenarios |
+| Claude Fable 5.1 | Not used | More than twice the cost of Opus and slower. Opus 5.5 handles this well. |
+
+**Rest of the stack:**
+- Next.js (TypeScript) app with Tailwind
+- SQLite database: zero setup, good for a demo
+- Audio stored locally
+- Can deploy to Vercel later
+
+**Rough cost:** about $0.20–0.40 of Claude usage per candidate, plus ElevenLabs credits for about 10–12 minutes of voice.
+
+## 5. Build order
+
+1. **Core loop:** one scenario, live voice call, transcript, Opus scoring, report page. *This alone is a working demo.*
+2. Three scenarios, voice-signal extraction, timestamped highlights with clip playback.
+3. Owner dashboard: roles, ranked candidates, statuses.
+4. Round-2 flow: the owner's "stress test on…" generates new scenarios, and the two rounds are compared.
+5. Polish: 5–6 pre-loaded demo candidates so the dashboard looks full for judges, and an end-to-end test.
+
+## 6. What I need from you
+
+**Before I start (required):**
+1. **ElevenLabs API key.** Your plan needs Conversational AI agents enabled.
+2. **Anthropic API key.**
+3. **Don't paste either key here in chat.** I'll create a `.env.local` file and you paste them into it yourself.
+
+**Decisions (I'll use the default if you don't answer):**
+
+| # | Question | My default |
+|---|---|---|
+| 1 | Shop type? It flavours the scenarios. | General retail / electronics |
+| 2 | Language and accent of the AI customer? | English, Indian accent |
+| 3 | Does the candidate need a login? | Invite link only |
+| 4 | Does the owner need a login? | A single demo owner, no auth |
+| 5 | Run locally for the demo, or deploy to a public URL? | Local first, then Vercel if time allows |
+| 6 | Do the criteria and weights above look right? | Equal weights, with Empathy and Composure counting 1.5× |
+| 7 | Product name and colours? | "ShiftReady", clean neutral look |
+| 8 | How long until the demo? | This decides whether I build all 5 steps or stop at 3 |
+
+## 7. Ideas worth considering
+
+- **Fairness:** "tone" should mean calmness, warmth and respect, **never** accent or fluency. I'll write this into the scoring instructions explicitly. Judges will notice, and it's the right call.
+- **Score confidence:** if a candidate barely spoke or the audio was poor, the report says "low confidence – re-test" instead of giving a misleading score.
+- **"Hear the best answer":** next to a fumble, play how the top candidate handled the same moment. That's a strong visual for the demo.
+- **Optional candidate feedback:** candidates get a short, kind summary of how they did, which makes the product look good to them too.
+
+Answer what you can, especially question 8 (time until the demo). Then put the keys in `.env.local` when I tell you to, and I'll start building.
